@@ -29,6 +29,8 @@
 #include <filesystem>
 #include "styles.h"
 #include "settings.h"
+#include "images.h"
+#include "image_utils.h"
 char server_buf[64] = "192.168.8.93";
 char share_buf[64] = "tmp";
 char username_buf[64] = "jandrawis";
@@ -103,6 +105,9 @@ int main()
     ImGui::StyleColorsDark();
     }
     ImGui_ImplGlfw_InitForOpenGL(window, true);
+    ImGui_ImplOpenGL3_Init("#version 330");
+    // initialize small icons (requires GL context)
+    InitImageTextures();
     // Receive OS file drops (first path) and mark upload ready
     glfwSetDropCallback(window, [](GLFWwindow* /*w*/, int count, const char** paths)
         {
@@ -114,7 +119,6 @@ int main()
                 }
                 upload_ready = !upload_queue.empty();
             } });
-            ImGui_ImplOpenGL3_Init("#version 330");
 
             // Start upload worker
             upload_worker_thread = std::thread([]() {
@@ -507,11 +511,15 @@ int main()
                         for (size_t idx = 0; idx < file_list.size(); ++idx)
                         {
                             const auto& file = file_list[idx];
-                            std::string label = (file.is_dir ? "[DIR] " : "[FILE] ") + file.name;
-
-                            ImGui::PushID((int)idx);
-                            // name column: selectable
-                            if (ImGui::Selectable(label.c_str(), false, 0, ImVec2(0, 0)))
+                                ImGui::PushID((int)idx);
+                                // name column: icon + selectable
+                                ImGui::BeginGroup();
+                                GLuint icon = file.is_dir ? GetFolderTexture() : GetFileTexture();
+                                if (icon) {
+                                    ImGui::Image((void*)(intptr_t)icon, ImVec2(16, 16));
+                                    ImGui::SameLine();
+                                }
+                                if (ImGui::Selectable(file.name.c_str(), false, 0, ImVec2(0, 0)))
                             {
                                 if (!file.is_dir)
                                 {
@@ -562,6 +570,7 @@ int main()
                             }
 
                             // (end SmallButton handling)
+                            ImGui::EndGroup();
                             ImGui::PopID();
                             ImGui::NextColumn();
                         }
@@ -698,6 +707,7 @@ int main()
             if (delete_worker_thread.joinable()) delete_worker_thread.join();
             if (download_worker_thread.joinable()) download_worker_thread.join();
 
+            FreeImageTextures();
             ImGui_ImplOpenGL3_Shutdown();
             ImGui_ImplGlfw_Shutdown();
             ImGui::DestroyContext();
