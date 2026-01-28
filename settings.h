@@ -76,8 +76,9 @@ void showSettingsTab(){
             ImVec4& scrollGrabActCol = style.Colors[ImGuiCol_ScrollbarGrabActive];
             ImVec4& buttonHov = style.Colors[ImGuiCol_ButtonHovered];
             ImVec4& buttonAct = style.Colors[ImGuiCol_ButtonActive];
-            ImVec4& collapseHead = style.Colors[ImGuiCol_TitleBg];
-            ImVec4& collapseHeadActive = style.Colors[ImGuiCol_TitleBgActive];
+            ImVec4& collapseHead = style.Colors[ImGuiCol_Header];
+            ImVec4& collapseHeadActive = style.Colors[ImGuiCol_HeaderActive];
+            ImVec4& collapseHeadHover = style.Colors[ImGuiCol_HeaderHovered];
             ImVec4& ProgressBar = style.Colors[ImGuiCol_PlotHistogram];
             ImVec4& titlebgActive = style.Colors[ImGuiCol_TitleBgActive];
             ImVec4& titlebg = style.Colors[ImGuiCol_TitleBg];
@@ -112,6 +113,8 @@ void showSettingsTab(){
                 if(ImGui::ColorEdit4("Collapsing Header Color", (float*)&collapseHead.x, ImGuiColorEditFlags_AlphaBar)) {
                 }
                 if(ImGui::ColorEdit4("Collapsing Header Active Color", (float*)&collapseHeadActive.x, ImGuiColorEditFlags_AlphaBar)) {
+                }
+                if(ImGui::ColorEdit4("Collapsing Header Hovered Color", (float*)&collapseHeadHover.x, ImGuiColorEditFlags_AlphaBar)) {
                 }
                 if(ImGui::ColorEdit4("Progress Bar Color", (float*)&ProgressBar.x, ImGuiColorEditFlags_AlphaBar)) {
                 }
