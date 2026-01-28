@@ -109,7 +109,14 @@ void showSettingsTab(){
                 }
                 if(ImGui::ColorEdit4("Progress Bar Color", (float*)&ProgressBar.x, ImGuiColorEditFlags_AlphaBar)) {
                 }
-                
+                if(ImGui::ColorEdit4("Progress Bar Hovered Color", (float*)&style.Colors[ImGuiCol_PlotHistogramHovered].x, ImGuiColorEditFlags_AlphaBar)) {
+                }
+                if(ImGui::ColorEdit4("Text Color", (float*)&style.Colors[ImGuiCol_Text].x, ImGuiColorEditFlags_AlphaBar)) {
+                }
+                if(ImGui::ColorEdit4("Text Disabled Color", (float*)&style.Colors[ImGuiCol_TextDisabled].x, ImGuiColorEditFlags_AlphaBar)) {
+                }
+                if(ImGui::ColorEdit4("Border Color", (float*)&style.Colors[ImGuiCol_Border].x, ImGuiColorEditFlags_AlphaBar)) {
+                }
             }
             if(ImGui::Button("Save Theme")){
                 SaveStyle("theme.cfg");
