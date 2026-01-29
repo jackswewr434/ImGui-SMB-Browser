@@ -1,1 +1,3 @@
 *.txt
+.bash_history
+*.log

@@ -818,8 +818,9 @@ int main()
                     ImGui::OpenPopup("Alert!");
                     rename_open = false;
                 }
+
                 // Rename modal
-                if (ImGui::BeginPopupModal("RenameModal", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+                if (ImGui::BeginPopupModal("Alert!", NULL, ImGuiWindowFlags_AlwaysAutoResize))
                 {
                     ImGui::Text("Rename to:");
                     ImGui::InputText("New name", rename_buf, sizeof(rename_buf));
