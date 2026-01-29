@@ -1,4 +1,4 @@
-# SMB Browser
+# ImSMB
 
 A desktop app for browsing and managing files on network drives. Easily upload, download, and organize files from SMB shares with a simple, clean interface.
 
