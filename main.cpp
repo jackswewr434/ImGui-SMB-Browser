@@ -661,20 +661,20 @@ int main()
                             rename_open = true;
                             ImGui::CloseCurrentPopup();
                         }
+                        if(ImGui::MenuItem("Delete"))
+                        {
+                            pending_delete_remote = full_remote;
+                            pending_delete_is_dir = file.is_dir;
+                            pending_delete_open_popup = true;
+                            ImGui::CloseCurrentPopup();
+                        }
                         ImGui::EndPopup();
                     }
 
                     ImGui::NextColumn();
 
                     // actions column: delete button
-                    char delbtn[64];
-                    sprintf(delbtn, "Delete##%zu", idx);
-                    if (ImGui::SmallButton(delbtn))
-                    {
-                        pending_delete_remote = full_remote;
-                        pending_delete_is_dir = file.is_dir;
-                        pending_delete_open_popup = true;
-                    }
+
 
                     ImGui::EndGroup();
                     ImGui::PopID();
