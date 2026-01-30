@@ -299,37 +299,21 @@ int main()
         ImGui::SetNextWindowSize(vp->Size);
         ImGuiWindowFlags host_flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus;
         ImGui::Begin("SMB Browser", NULL, host_flags);
-        if (ImGui::Button("SMB Browser"))
-        {
-            if (settingsTab)
-            {
-                settingsTab = false;
-            }
-            if (!smbBrowsing)
-            {
-                smbBrowsing = true;
-            }
-            else
-            {
-                smbBrowsing = false;
-            }
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Settings"))
-        {
-            if (smbBrowsing)
-            {
-                smbBrowsing = false;
-            }
-            if (!settingsTab)
-            {
-                settingsTab = true;
-            }
-            else
-            {
-                settingsTab = false;
-            }
-        }
+if (ImGui::Button("SMB Browser"))
+{
+    smbBrowsing = !smbBrowsing;
+    if (smbBrowsing)
+        settingsTab = false;
+}
+
+ImGui::SameLine();
+
+if (ImGui::Button("Settings"))
+{
+    settingsTab = !settingsTab;
+    if (settingsTab)
+        smbBrowsing = false;
+}
         if (settingsTab)
         {
             smbBrowsing = false;
