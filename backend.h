@@ -17,8 +17,6 @@
 #include <sys/stat.h>
 #include "settings.h"
 
-
-
 int file_exists_fopen(const char *filename) {
     FILE *file;
     // Try to open the file in read mode ("r")
@@ -193,47 +191,6 @@ std::vector<SMBFileInfo> ListSMBFiles(const std::string& server, const std::stri
     return files;
 }
 
-bool DownloadFile(const std::string& server, const std::string& share, 
-                  const std::string& path, const std::string& localFile,
-                  const std::string& username, const std::string& password) {
-    std::lock_guard<std::mutex> smb_lock(g_smb_mutex);
-    g_smb_username = username;
-    g_smb_password = password;
-    smbc_init(auth_fn, 1);
-    
-    std::string smb_url = "smb://" + server + "/" + share + "/" + UrlEncode(path);
-    printf("DEBUG smb_url (open/download): %s\n", smb_url.c_str());
-    
-    // Returns int fd (NOT SMBCFILE*)
-    int fd = smbc_open(smb_url.c_str(), O_RDONLY, 0);
-    if (fd == -1) return false;
-    
-    // Determine final download path
-    std::string final_path;
-    if (downloadPath.empty()) {
-        final_path = localFile;
-    } else {
-        final_path = downloadPath + "/" + localFile;
-        // Ensure download directory exists
-        std::filesystem::create_directories(downloadPath);
-    }
-    
-    std::ofstream out(final_path, std::ios::binary);
-    if (!out.is_open()) {
-        smbc_close(fd);
-        return false;
-    }
-    
-    char buffer[4096];
-    ssize_t bytes;
-    while ((bytes = smbc_read(fd, buffer, sizeof(buffer))) > 0) {
-        out.write(buffer, bytes);
-    }
-    
-    out.close();
-    smbc_close(fd);
-    return true;
-}
 
 // Download with progress callback: calls progress_cb(bytes_read) after each chunk read.
 bool DownloadFileWithProgress(const std::string& server, const std::string& share,
@@ -283,79 +240,6 @@ bool DownloadFileWithProgress(const std::string& server, const std::string& shar
     return bytes >= 0;
 }
 
-bool UploadFile(const std::string& server, const std::string& share, 
-                const std::string& remotePath, const std::string& localFile,
-                const std::string& username, const std::string& password) {
-    std::lock_guard<std::mutex> smb_lock(g_smb_mutex);
-    g_smb_username = username;
-    g_smb_password = password;
-    smbc_init(auth_fn, 1);
-    
-    std::string smb_url = "smb://" + server + "/" + share + "/" + UrlEncode(remotePath);
-    printf("DEBUG smb_url (open/upload): %s\n", smb_url.c_str());
-    
-    // Open local file for reading
-    std::ifstream in(localFile, std::ios::binary);
-    if (!in.is_open()) {
-        printf("UploadFile: failed to open local file '%s'\n", localFile.c_str());
-        return false;
-    }
-
-    // Open remote file for writing (O_WRONLY | O_CREAT | O_TRUNC)
-        // Verify parent directory exists before open
-        std::string parent = remotePath;
-        size_t ppos = parent.find_last_of('/');
-        if (ppos != std::string::npos) parent = parent.substr(0, ppos);
-        else parent.clear();
-        std::string parent_url = std::string("smb://") + server + "/" + share;
-        if (!parent.empty()) parent_url += "/" + UrlEncode(parent);
-        printf("DEBUG smb_url (parent opendir): %s\n", parent_url.c_str());
-        int pdh = smbc_opendir(parent_url.c_str());
-        if (pdh == -1) {
-            printf("Parent opendir failed for '%s' (errno=%d: %s)\n", parent_url.c_str(), errno, strerror(errno));
-            // attempt to create the parent directory chain
-            if (!parent.empty()) {
-                if (EnsureRemoteDirExists(server, share, parent, username, password)) {
-                    int pdh_retry = smbc_opendir(parent_url.c_str());
-                    if (pdh_retry == -1) {
-                        printf("After mkdir, parent opendir still failed for '%s' (errno=%d: %s)\n", parent_url.c_str(), errno, strerror(errno));
-                    } else {
-                        smbc_closedir(pdh_retry);
-                    }
-                }
-            }
-        } else {
-            smbc_closedir(pdh);
-        }
-
-        int fd = smbc_open(smb_url.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
-    if (fd == -1) {
-        printf("UploadFile: failed to open remote '%s' (errno=%d: %s)\n", smb_url.c_str(), errno, strerror(errno));
-        in.close();
-        return false;
-    }
-
-    char buffer[4096];
-    while (true) {
-        in.read(buffer, sizeof(buffer));
-        std::streamsize bytes = in.gcount();
-        if (bytes > 0) {
-            ssize_t written = smbc_write(fd, buffer, (size_t)bytes);
-            if (written != bytes) {
-                printf("UploadFile: write error for '%s' (wrote %zd of %zd, errno=%d: %s)\n", smb_url.c_str(), written, bytes, errno, strerror(errno));
-                smbc_close(fd);
-                in.close();
-                return false;
-            }
-        }
-        if (!in) break; // EOF or error after processing gcount
-    }
-
-    smbc_close(fd);
-    in.close();
-    printf("UploadFile: upload finished for local '%s' -> '%s'\n", localFile.c_str(), smb_url.c_str());
-    return true;
-}
 
 // Upload with progress callback: calls progress_cb(bytes_written) after each chunk written.
 bool UploadFileWithProgress(const std::string& server, const std::string& share,

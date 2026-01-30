@@ -25,10 +25,11 @@
 #include "settings.h"
 #include "images.h"
 #include "image_utils.h"
-char server_buf[64] = "192.168.8.93";
-char share_buf[64] = "tmp";
-char username_buf[64] = "jandrawis";
-char password_buf[64] = "1997";
+//TODO MAKE THIS BE INTO A CONFIG 
+char server_buf[64] = "";
+char share_buf[64] = "";
+char username_buf[64] = "";
+char password_buf[64] = "";
 static std::vector<SMBFileInfo> file_list;
 static char current_path[512] = "";
 // bool tabs
@@ -117,6 +118,7 @@ static bool pending_delete_is_dir = false;
 static bool pending_delete_open_popup = false;
 // Rename state
 static std::string rename_target_remote;
+std::string size_string;
 static char rename_buf[512] = {0};
 static bool rename_open = false;
 
@@ -632,7 +634,7 @@ int main()
 
             if (!file_list.empty())
             {
-                ImGui::BeginChild("FileList", ImVec2(0, 200), true);
+                ImGui::BeginChild("FileList", ImVec2(0, 400), true);
                 // single column: name (actions inline)
                 ImGui::Columns(1, "files_cols", false);
                 for (size_t idx = 0; idx < file_list.size(); ++idx)
@@ -652,7 +654,13 @@ int main()
                         ImGui::Image((void *)(intptr_t)icon, ImVec2(16, 16));
                         ImGui::SameLine();
                     }
-                    if (ImGui::Selectable(file.name.c_str(), false, 0, ImVec2(0, 0)))
+                    if(!file.is_dir){
+                        size_string = file.name +  ", " + std::to_string(file.size) + " bytes";
+                    }
+                    else{
+                        size_string = file.name;
+                    }
+                    if (ImGui::Selectable(size_string.c_str(), false, 0, ImVec2(0, 0)))
                     {
                         if (!file.is_dir)
                         {
@@ -675,7 +683,8 @@ int main()
                             file_list = ListSMBFiles(server_buf, share_buf, current_path, username_buf, password_buf);
                         }
                     }
-
+                    ImGui::SameLine();
+                    //ImGui::Text((const char*)(sizeof(file)));
                     // context menu for this item (right-click) — attach to the Selectable above
                     if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
                     {

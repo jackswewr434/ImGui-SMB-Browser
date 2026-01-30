@@ -8,10 +8,8 @@
 #include <cstdio>
 #include <cstring>
 
-
 std::string downloadPath = "";
 static char downloadPathBuffer[256] = "";
-
 // Config file handlers (for non-theme settings like download path)
 void SaveConfig(const char* path) {
     std::ofstream f(path);
