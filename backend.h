@@ -31,6 +31,27 @@ int file_exists_fopen(const char *filename) {
 }
 
 
+size_t bytesToSize(size_t amount){
+
+    static int GB = amount/1073741824;
+    static int KB = amount/1024;
+    static int MB = amount/1048576;
+
+    if(amount < 1000){
+        return amount;
+    }
+    if(amount >= 1024) and (amount < 1048576){
+        return KB;
+    }
+
+    if(amount >= 1024) and (amount < 1073741824){
+        return MB;
+    }
+
+    if(amount >= 1073741824){
+        return GB;
+    }
+}
 // URL-encode helper for SMB URLs. Leaves '/' unencoded so path separators remain.
 static std::string UrlEncode(const std::string& s) {
     std::string out;
@@ -433,3 +454,4 @@ bool MoveRemote(const std::string& server, const std::string& share,
 }
 
 #endif
+
