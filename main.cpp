@@ -655,7 +655,7 @@ int main()
                         ImGui::SameLine();
                     }
                     if(!file.is_dir){
-                        size_string = file.name +  ", " + std::to_string(file.size) + " bytes";
+                        size_string = file.name +  ", " + std::to_string(bytesToSize(file.size)) + " bytes";
                     }
                     else{
                         size_string = file.name;
@@ -946,3 +946,4 @@ int main()
     glfwTerminate();
     return 0;
 }
+
