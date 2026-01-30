@@ -38,7 +38,7 @@ An app for linux, for browsing and managing files on network drives. Easily uplo
 ./compile 
 ```
 
-### Dependencies Installation (Linux)
+### Dependencies Installation
 ```bash
 # Ubuntu/Debian
 sudo apt-get install libglfw3-dev libglew-dev libsmbclient-dev
@@ -84,5 +84,6 @@ Each file operation (upload/download) generates:
 - **GLEW** - OpenGL extensions
 - **libsmbclient** - Samba client library
 - **stb_image** - Image decoding
+
 
 
