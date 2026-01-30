@@ -102,6 +102,7 @@ static std::deque<DeleteTask> delete_tasks;
 static std::mutex delete_mutex;
 static std::condition_variable delete_cv;
 static std::thread delete_worker_thread;
+static std::atomic<bool> refresh_listing_after_delete{false};
 
 struct StagedDelete
 {
@@ -173,7 +174,6 @@ int main()
                         upload_tasks.pop_front();
                     }
 
-                    // mark status (guarded)
                     {
                         std::lock_guard<std::mutex> lk(upload_mutex);
                         auto& st = upload_status_map[task.id];
@@ -212,19 +212,29 @@ int main()
                 } });
 
     // Start delete worker
-    delete_worker_thread = std::thread([]()
-                                       {
-                while (!workers_stop) {
-                    DeleteTask dt;
-                    {
-                        std::unique_lock<std::mutex> lk(delete_mutex);
-                        delete_cv.wait(lk, [] {return workers_stop || !delete_tasks.empty(); });
-                        if (workers_stop) break;
-                        dt = delete_tasks.front(); delete_tasks.pop_front();
-                    }
-                    // perform delete (recursive)
-                    DeleteRecursive(server_buf, share_buf, dt.remote, username_buf, password_buf);
-                } });
+    delete_worker_thread = std::thread([&]()
+    {
+        while (!workers_stop) {
+            DeleteTask dt;
+            {
+                std::unique_lock<std::mutex> lk(delete_mutex);
+                delete_cv.wait(lk, [] {return workers_stop || !delete_tasks.empty(); });
+                if (workers_stop) break;
+                dt = delete_tasks.front();
+                delete_tasks.pop_front();
+            }
+            // perform delete (recursive)
+            DeleteRecursive(server_buf, share_buf, dt.remote, username_buf, password_buf);
+            
+            // Check if queue is now empty and signal refresh
+            {
+                std::lock_guard<std::mutex> lk(delete_mutex);
+                if (delete_tasks.empty()) {
+                    refresh_listing_after_delete.store(true);
+                }
+            }
+        }
+    });
 
     // Start download worker
     download_worker_thread = std::thread([]()
@@ -261,6 +271,14 @@ int main()
     while (!glfwWindowShouldClose(window))
     {
         glfwPollEvents();
+        
+        // Refresh listing if deletes completed
+        if (refresh_listing_after_delete.exchange(false))
+        {
+            file_list = ListSMBFiles(server_buf, share_buf, current_path, username_buf, password_buf);
+            printf("Refreshed listing after deletes completed\n");
+        }
+        
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
@@ -322,7 +340,6 @@ int main()
 
             if (ImGui::Button("Back") && strlen(current_path) > 0)
             {
-                // todo fix
                 char *last_slash = strrchr(current_path, '/');
                 if (last_slash && last_slash > current_path)
                 {
@@ -390,15 +407,14 @@ int main()
                 ImGui::SameLine();
                 if (ImGui::Button("Empty Trash"))
                 {
-                    // commit staged deletes to background worker
                     std::lock_guard<std::mutex> lk(delete_mutex);
                     for (const auto &sd : staged_deletes)
                         delete_tasks.push_back({sd.temp, sd.is_dir});
                     if (!staged_deletes.empty())
                         delete_cv.notify_one();
                     staged_deletes.clear();
-                    file_list = ListSMBFiles(server_buf, share_buf, current_path, username_buf, password_buf);
                     printf("EMPTY TRASH: committed staged deletes to worker\n");
+                    printf("Refreshed listing after empty trash\n");
                 }
             }
 
@@ -552,8 +568,11 @@ int main()
                             ImGui::Text("%s (%zu bytes)", st.local.c_str(), st.transferred);
                         }
                         ImGui::ProgressBar(frac, ImVec2(-1, 0));
-                        if (st.done)
+                        if (st.done){
                             ImGui::Text(st.success ? "Done" : "Failed");
+                            //relist 
+                            file_list = ListSMBFiles(server_buf, share_buf, current_path, username_buf, password_buf);
+                        }
                     }
                     for (int id : to_erase)
                         upload_status_map.erase(id);
@@ -747,8 +766,10 @@ int main()
                                 for (const auto &sd : staged_deletes)
                                 {
                                     DeleteRecursive(server_buf, share_buf, sd.temp, username_buf, password_buf);
+
                                 }
                                 staged_deletes.clear();
+                                file_list = ListSMBFiles(server_buf, share_buf, current_path, username_buf, password_buf);
                             }
 
                             // Stage the directory delete via rename
@@ -817,7 +838,7 @@ int main()
                 if (ImGui::BeginPopupModal("Alert!", NULL, ImGuiWindowFlags_AlwaysAutoResize))
                 {
                     ImGui::Text("Rename to:");
-                    ImGui::InputText("New name", rename_buf, sizeof(rename_buf));
+                    ImGui::InputText("name", rename_buf, sizeof(rename_buf));
                     ImGui::Separator();
                     if (ImGui::Button("OK", ImVec2(120, 0)))
                     {
