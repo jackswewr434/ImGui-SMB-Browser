@@ -85,4 +85,7 @@ Each file operation (upload/download) generates:
 - **stb_image** - Image decoding
 
 
+### Screenshots
+<img width="1292" height="833" alt="Screenshot_20260129_191141" src="https://github.com/user-attachments/assets/18ca6f1a-76ff-4d9f-a79e-2fef8f1b0144" />
+<img width="1292" height="833" alt="Screenshot_20260129_191206" src="https://github.com/user-attachments/assets/2261f24b-1040-40ba-9845-a2c76440e28a" />
 
