@@ -161,4 +161,9 @@ void showSettingsTab(){
         }
         ImGui::Text("(saves automatically), if blank goes to program dir");
     }
+
+    ImGui::SetWindowFontScale(.75f);
+    ImGui::TextDisabled("SMB Viewer v1.1.1 - by Jackson Andrawis");
+    ImGui::SetWindowFontScale(1.0f);
+
 }
