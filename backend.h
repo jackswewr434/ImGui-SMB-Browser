@@ -28,29 +28,18 @@ int file_exists_fopen(const char *filename) {
         // If fopen returns NULL, the file does not exist or an error occurred
         return 0;
     }
-}
-
-
-size_t bytesToSize(size_t amount){
-
-    static int GB = amount/1073741824;
-    static int KB = amount/1024;
-    static int MB = amount/1048576;
-
-    if(amount < 1000){
-        return amount;
+}                                                                                           
+std::string bytesToSize(uint64_t amount){
+ const char* sizes[] = { "B", "KB", "MB", "GB", "TB" };
+    int order = 0;
+    double size = static_cast<double>(amount);
+    while (size >= 1024 && order < 4) {
+        order++;
+        size /= 1024.0;
     }
-    if(amount >= 1024) and (amount < 1048576){
-        return KB;
-    }
-
-    if(amount >= 1024) and (amount < 1073741824){
-        return MB;
-    }
-
-    if(amount >= 1073741824){
-        return GB;
-    }
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%.2f %s", size, sizes[order]);
+    return std::string(buf); 
 }
 // URL-encode helper for SMB URLs. Leaves '/' unencoded so path separators remain.
 static std::string UrlEncode(const std::string& s) {
