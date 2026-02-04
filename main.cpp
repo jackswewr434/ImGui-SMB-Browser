@@ -25,7 +25,7 @@
 #include "settings.h"
 #include "images.h"
 #include "image_utils.h"
-// TODO MAKE THIS BE INTO A CONFIG
+#include <zip.h>
 static std::vector<SMBFileInfo> file_list;
 static char current_path[512] = "";
 char server_buf[64] = "";
@@ -163,16 +163,48 @@ int main()
     // initialize small icons (requires GL context)
     InitImageTextures();
     // Receive OS file drops (first path) and mark upload ready
-    glfwSetDropCallback(window, [](GLFWwindow * /*w*/, int count, const char **paths)
+    glfwSetDropCallback(window, [](GLFWwindow *, int count, const char **paths)
                         {
-            if (count > 0 && paths) {
-                for (int i = 0; i < count; ++i) {
-                    if (!paths[i]) continue;
-                    upload_queue.push_back(paths[i]);
-                    printf("[DROP DEBUG] GLFW drop queued: %s\n", paths[i]);
+    for (int i = 0; i < count; ++i) {
+        if (!paths[i]) continue;
+        
+        std::filesystem::path p(paths[i]);
+        if (std::filesystem::is_directory(p)) {
+            std::string folder_name = p.filename().string();
+            std::string current_path_str(current_path);
+            std::string target_folder = current_path_str.empty() ? folder_name : current_path_str + "/" + folder_name;
+            
+            printf("[DROP] Creating folder '%s' then uploading files...\n", target_folder.c_str());
+            
+            // 1. CREATE THE FOLDER FIRST
+            if (!EnsureRemoteDirExists(server_buf, share_buf, target_folder, username_buf, password_buf)) {
+                printf("FAILED to create folder '%s'\n", target_folder.c_str());
+                continue;
+            }
+            printf("Folder '%s' created\n", target_folder.c_str());
+            
+            // 2. UPLOAD ALL FILES FROM FOLDER (non-recursive, just 1 level)
+            for (auto& entry : std::filesystem::directory_iterator(p)) {
+                if (entry.is_regular_file()) {
+                    std::string file_name = entry.path().filename().string();
+                    std::string remote_file = target_folder + "/" + file_name;
+                    
+                    printf("Uploading '%s' -> '%s'\n", entry.path().string().c_str(), remote_file.c_str());
+                    
+                    if (UploadFileWithProgress(server_buf, share_buf, remote_file, 
+                                             entry.path().string(), username_buf, password_buf, nullptr)) {
+                        printf("File uploaded\n");
+                    } else {
+                        printf("  ❌ File FAILED\n");
+                    }
                 }
-                upload_ready = !upload_queue.empty();
-            } });
+            }
+        } else {
+            // Single files as before
+            upload_queue.push_back(paths[i]);
+            upload_ready = true;
+        }
+    } });
 
     // Start upload worker
     upload_worker_thread = std::thread([]()
@@ -369,19 +401,40 @@ int main()
                 if (ImGui::BeginDragDropTarget())
                 {
                     printf("[DROP DEBUG] BeginDragDropTarget() = TRUE\n");
-                    const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("Files");
-                    if (payload && payload->Data && payload->DataSize > 0)
+
+                    if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("Files"))
                     {
-                        const char *path = (const char *)payload->Data;
-                        printf("[DROP DEBUG] PAYLOAD PATH DETECTED: '%s'\n", path);
-                        upload_queue.push_back(std::string(path));
-                        upload_ready = !upload_queue.empty();
+                        if (payload->Data)
+                        {
+                            const char *path_cstr = static_cast<const char *>(payload->Data);
+                            printf("[DROP DEBUG] PAYLOAD PATH DETECTED: '%s'\n", path_cstr);
+
+                            std::filesystem::path p(path_cstr);
+                            printf("[DROP DEBUG] is_directory(p) = %s\n", std::filesystem::is_directory(p) ? "TRUE" : "FALSE");
+                            printf("[DROP DEBUG] exists(p) = %s\n", std::filesystem::exists(p) ? "TRUE" : "FALSE");
+                            if (std::filesystem::is_directory(p))
+                            {
+                                std::string current_path_str(current_path);
+                                std::string folder_name = p.filename().string();
+                                std::string remote_folder = current_path_str.empty() ? folder_name : current_path_str + "/" + folder_name;
+                                printf("[DROP DEBUG] Uploading folder '%s' to remote '%s'\n", p.string().c_str(), remote_folder.c_str());
+                                printf("[DROP DEBUG] Uploading folder '%s' to remote '%s'\n", p.string().c_str(), remote_folder.c_str());
+
+                                if (recursiveFolderUpload(server_buf, share_buf, p.string(), remote_folder, username_buf, password_buf))
+                                {
+                                    printf("Folder uploaded successfully\n");
+                                }
+                                else
+                                {
+                                    printf("Folder upload FAILED\n");
+                                }
+                            }
+                        }
                     }
                     ImGui::EndDragDropTarget();
                 }
             }
             ImGui::EndChild();
-
             // Always show staged deletes so user can undo even when not uploading
             if (!staged_deletes.empty())
             {
@@ -473,7 +526,21 @@ int main()
                             std::string full_remote = std::string(current_path);
                             if (strlen(current_path) > 0 && current_path[0])
                                 full_remote += "/";
+                            std::filesystem::path p(localPath);
+                            if (std::filesystem::is_directory(p))
+                            {
+                                upload_queue.clear(); // Clear any pending
+                                upload_ready = false;
 
+                                std::string current_path_str(current_path);
+                                std::string folder_name = p.filename().string();
+                                std::string remote_folder = current_path_str.empty() ? folder_name : current_path_str + "/" + folder_name;
+
+                                printf("[DROP DEBUG] DIRECT folder upload: %s -> %s\n", p.string().c_str(), remote_folder.c_str());
+
+                                bool success = recursiveFolderUpload(server_buf, share_buf, p.string(), remote_folder, username_buf, password_buf);
+                                printf("DIRECT folder result: %s\n", success ? "SUCCESS" : "FAILED");
+                            }
                             // Use only the local filename when uploading (don't create local parent dirs remotely)
                             try
                             {
@@ -749,7 +816,7 @@ int main()
                             pending_delete_open_popup = true;
                             ImGui::CloseCurrentPopup();
                         }
-                        if(ImGui::MenuItem("New Folder"))
+                        if (ImGui::MenuItem("New Folder"))
                         {
                             bool created = CreateFolderInCurrent(server_buf, share_buf, current_path, username_buf, password_buf);
                             if (created)
@@ -761,6 +828,97 @@ int main()
                             else
                             {
                                 printf("Failed to create new folder in '%s'\n", current_path);
+                                ImGui::CloseCurrentPopup();
+                            }
+                        }
+                        if (file.name.find(".zip") != std::string::npos)
+                        {
+                            if (ImGui::MenuItem("Extract Zip"))
+                            {
+                                // 1. Get zip filename WITHOUT .zip extension
+                                std::string zip_folder = file.name;
+                                size_t dot_pos = zip_folder.find_last_of('.');
+                                if (dot_pos != std::string::npos)
+                                {
+                                    zip_folder = zip_folder.substr(0, dot_pos); // "SMBViewer" from "SMBViewer.zip"
+                                }
+
+                                // 2. Create target folder in current SMB path
+                                std::string target_folder = std::string(current_path);
+                                if (!target_folder.empty() && target_folder.back() != '/')
+                                    target_folder += "/";
+                                target_folder += zip_folder; // "Desktop/SMBViewer"
+
+                                printf("[ZIP] Creating folder: %s\n", target_folder.c_str());
+                                EnsureRemoteDirExists(server_buf, share_buf, target_folder, username_buf, password_buf);
+
+                                // 3. Download + extract INTO that folder
+                                std::string localZip = "/tmp/smb_" + std::to_string(time(NULL)) + "_" + file.name;
+                                if (DownloadFile(server_buf, share_buf, full_remote, localZip, username_buf, password_buf))
+                                {
+                                    int err = 0;
+                                    zip_t *zip = zip_open(localZip.c_str(), 0, &err);
+                                    if (zip)
+                                    {
+                                        printf("Opened zip (%d entries)\n", (int)zip_get_num_entries(zip, 0));
+
+                                        for (int i = 0; i < zip_get_num_entries(zip, 0); i++)
+                                        {
+                                            zip_stat_t sb;
+                                            zip_stat_index(zip, i, 0, &sb);
+
+                                            if (sb.size == 0)
+                                                continue;
+
+                                            zip_file_t *zf = zip_fopen_index(zip, i, 0);
+                                            if (!zf)
+                                                continue;
+
+                                            std::vector<char> buffer(sb.size);
+                                            zip_fread(zf, buffer.data(), sb.size);
+                                            zip_fclose(zf);
+
+                                            // PREPEND zip_folder to every file path
+                                            std::string remoteDest = target_folder + "/" + std::string(sb.name);
+
+                                            // Create parent dirs for nested folders
+                                            size_t dir_pos = remoteDest.find_last_of('/');
+                                            std::string parent_path = (dir_pos != std::string::npos) ? remoteDest.substr(0, dir_pos) : "";
+                                            if (!parent_path.empty())
+                                            {
+                                                EnsureRemoteDirExists(server_buf, share_buf, parent_path, username_buf, password_buf);
+                                            }
+
+                                            printf("Uploading: %s\n", remoteDest.c_str());
+                                            std::string temp_file = "/tmp/zip_temp_" + std::to_string(time(NULL)) + "_" + std::to_string(i);
+                                            FILE *f = fopen(temp_file.c_str(), "wb");
+                                            if (f)
+                                            {
+                                                fwrite(buffer.data(), 1, sb.size, f);
+                                                fclose(f);
+
+                                                printf("Uploading: %s\n", remoteDest.c_str());
+                                                bool success = UploadFileWithProgress(server_buf, share_buf, remoteDest,
+                                                                                      temp_file, username_buf, password_buf, nullptr);
+                                                remove(temp_file.c_str()); // cleanup
+
+                                                printf("%s %s\n", sb.name, success ? "SUCCESS" : "FAILED");
+                                            }
+                                            else
+                                            {
+                                                printf("Failed to create temp file\n");
+                                            }
+
+                                            printf("%s DONE\n", sb.name);
+                                        }
+
+                                        zip_close(zip);
+                                        file_list = ListSMBFiles(server_buf, share_buf, current_path, username_buf, password_buf);
+                                        printf("Zip extracted to %s!\n", target_folder.c_str());
+                                    }
+
+                                    std::filesystem::remove(localZip);
+                                }
                                 ImGui::CloseCurrentPopup();
                             }
                         }

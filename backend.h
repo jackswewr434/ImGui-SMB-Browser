@@ -17,6 +17,7 @@
 #include <sys/stat.h>
 #include "settings.h"
 #include "image_utils.h"
+#include <zip.h>
 int file_exists_fopen(const char *filename)
 {
     FILE *file;
@@ -265,7 +266,6 @@ std::vector<SMBFileInfo> ListSMBFiles(const std::string &server, const std::stri
         smb_url += "/" + share;
     if (!path.empty())
         smb_url += "/" + UrlEncode(path);
-    printf("DEBUG smb_url (opendir): %s\n", smb_url.c_str());
 
     int dh = smbc_opendir(smb_url.c_str());
     if (dh == -1)
@@ -366,7 +366,7 @@ bool CreateFolderInCurrent(const std::string &server,
     if (currentRemotePath.empty())
         fullRemote = "New Folder"; // at share root
     else
-        fullRemote = currentRemotePath + "/" + fullRemote;
+        fullRemote = currentRemotePath + "/" + "New Folder";
 
     // This will mkdir -p along fullRemote
     return EnsureRemoteDirExists(server, share, fullRemote, username, password);
@@ -437,7 +437,6 @@ bool UploadFileWithProgress(const std::string &server, const std::string &share,
     std::string parent_url2 = std::string("smb://") + server + "/" + share;
     if (!parentp.empty())
         parent_url2 += "/" + UrlEncode(parentp);
-    printf("DEBUG smb_url (parent opendir for progress): %s\n", parent_url2.c_str());
     int pdh2 = smbc_opendir(parent_url2.c_str());
     if (pdh2 == -1)
     {
@@ -551,7 +550,6 @@ bool DeleteRecursive(const std::string &server, const std::string &share,
     std::string smb_url = "smb://" + server + "/" + share;
     if (!remotePath.empty())
         smb_url += "/" + UrlEncode(remotePath);
-    printf("DEBUG smb_url (opendir/deleteRecursive): %s\n", smb_url.c_str());
 
     // Try opening as directory
     int dh = smbc_opendir(smb_url.c_str());
@@ -638,5 +636,89 @@ bool MoveRemote(const std::string &server, const std::string &share,
     printf("MoveRemote: renamed '%s' -> '%s'\n", old_url.c_str(), new_url.c_str());
     return true;
 }
+bool recursiveFolderUpload(const std::string &server, const std::string &share,
+                           const std::string &localPath, const std::string &remotePath,
+                           const std::string &username, const std::string &password)
+{
+    printf("=== RECURSIVE UPLOAD START: local='%s' -> remote='%s' ===\n",
+           localPath.c_str(), remotePath.c_str());
 
-#endif
+    for (const auto &entry : std::filesystem::directory_iterator(localPath))
+    {
+        std::string entryName = entry.path().filename().string();
+        std::string remoteEntryPath = remotePath.empty() ? entryName : remotePath + "/" + entryName;
+
+        printf("  [%s] '%s' -> '%s'\n",
+               entry.is_directory() ? "DIR " : "FILE",
+               entry.path().string().c_str(), remoteEntryPath.c_str());
+
+        if (entry.is_directory())
+        {
+            printf("  Creating dir '%s'...\n", remoteEntryPath.c_str());
+            if (!EnsureRemoteDirExists(server, share, remoteEntryPath, username, password))
+            {
+                printf("FAILED to create dir '%s'\n", remoteEntryPath.c_str());
+                return false;
+            }
+            printf("Dir created, recursing...\n");
+
+            if (!recursiveFolderUpload(server, share, entry.path().string(), remoteEntryPath, username, password))
+            {
+                printf("Recursion failed for '%s'\n", remoteEntryPath.c_str());
+                return false;
+            }
+        }
+        else if (entry.is_regular_file())
+        {
+            printf("  Uploading file '%s'...\n", remoteEntryPath.c_str());
+            if (!UploadFileWithProgress(server, share, remoteEntryPath, entry.path().string(), username, password, nullptr))
+            {
+                printf("FAILED to upload '%s'\n", remoteEntryPath.c_str());
+                return false;
+            }
+            printf("File uploaded\n");
+        }
+    }
+    printf("=== RECURSIVE UPLOAD COMPLETE ===\n");
+    return true;
+}
+
+bool UploadMemoryToSMB(const std::string &server, const std::string &share,
+                      const std::string &remotePath, const char* data, size_t size,
+                      const std::string &username, const std::string &password) {
+    
+    std::lock_guard<std::mutex> smb_lock(g_smb_mutex);
+    g_smb_username = username;
+    g_smb_password = password;
+    smbc_init(auth_fn, 1);
+
+    std::string smb_url = "smb://" + server + "/" + share + "/" + UrlEncode(remotePath);
+    printf("[SMB] Opening: %s\n", smb_url.c_str());
+    
+    // Create parent directory only
+    size_t last_slash = remotePath.find_last_of('/');
+    if (last_slash != std::string::npos) {
+        std::string parent_dir = remotePath.substr(0, last_slash);
+        EnsureRemoteDirExists(server, share, parent_dir, username, password);
+    }
+    
+    int fd = smbc_open(smb_url.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (fd == -1) {
+        printf("[SMB] smbc_open failed: %s (errno=%d)\n", strerror(errno), errno);
+        return false;
+    }
+    
+    ssize_t written = smbc_write(fd, data, size);
+    smbc_close(fd);
+    
+    if (written != (ssize_t)size) {
+        printf("[SMB] Write failed: %zd/%zu\n", written, size);
+        return false;
+    }
+    
+    printf("[SMB] Upload complete\n");
+    return true;
+}
+
+
+#endif // BACKEND_H
