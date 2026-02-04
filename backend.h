@@ -18,6 +18,10 @@
 #include "settings.h"
 #include "image_utils.h"
 #include <zip.h>
+static SMBCCTX* g_smb_ctx = nullptr;
+static bool g_smb_initialized = false;
+
+
 int file_exists_fopen(const char *filename)
 {
     FILE *file;
@@ -138,11 +142,12 @@ static std::string g_smb_username = "";
 static std::string g_smb_password = "";
 
 // Global auth callback (fixes deprecated lambda issue)
-void auth_fn(const char *server, const char *share,
+void auth_fn(SMBCCTX *ctx, const char *server, const char *share,
              char *workgroup, int wgmaxlen,
              char *username, int unmaxlen,
              char *password, int pwmaxlen)
 {
+    // IGNORE 'ctx' parameter - your existing logic stays SAME
     if (!g_smb_username.empty())
     {
         strncpy(username, g_smb_username.c_str(), unmaxlen - 1);
@@ -166,7 +171,21 @@ void auth_fn(const char *server, const char *share,
 
     workgroup[0] = 0;
 }
-
+static void InitSMBUniversal(const std::string &username, const std::string &password) {
+    if (g_smb_initialized) return;
+    
+    g_smb_username = username;
+    g_smb_password = password;
+    
+    g_smb_ctx = smbc_new_context();
+    smbc_setFunctionAuthDataWithContext(g_smb_ctx, auth_fn);
+    smbc_option_set(g_smb_ctx, "client min protocol", "NT1");  
+    smbc_option_set(g_smb_ctx, "client max protocol", "SMB3_11");
+    
+    smbc_set_context(g_smb_ctx);
+    smbc_init_context(g_smb_ctx);
+    g_smb_initialized = true;
+}
 // global mutex to serialize libsmbclient operations (some backends/protocols
 // are not safe for concurrent smbc calls from multiple threads)
 static std::mutex g_smb_mutex;
@@ -180,10 +199,10 @@ static bool EnsureRemoteDirExists(const std::string &server, const std::string &
     std::lock_guard<std::mutex> smb_lock(g_smb_mutex);
     if (remoteDir.empty())
         return true;
+    
     g_smb_username = username;
     g_smb_password = password;
-    smbc_init(auth_fn, 1);
-
+    InitSMBUniversal(username, password); 
     std::string base = std::string("smb://") + server + "/" + share;
 
     std::istringstream iss(remoteDir);
@@ -256,11 +275,11 @@ std::vector<SMBFileInfo> ListSMBFiles(const std::string &server, const std::stri
 {
     std::vector<SMBFileInfo> files;
     std::lock_guard<std::mutex> smb_lock(g_smb_mutex);
+
     // Set credentials for auth callback and initialize
     g_smb_username = username;
     g_smb_password = password;
-    smbc_init(auth_fn, 1); // Uses function pointer, not lambda
-
+    InitSMBUniversal(username, password);  // Replaces ALL smbc_init() calls
     std::string smb_url = "smb://" + server;
     if (!share.empty())
         smb_url += "/" + share;
@@ -309,8 +328,7 @@ bool DownloadFileWithProgress(const std::string &server, const std::string &shar
     std::lock_guard<std::mutex> smb_lock(g_smb_mutex);
     g_smb_username = username;
     g_smb_password = password;
-    smbc_init(auth_fn, 1);
-
+    InitSMBUniversal(username, password);  // Replaces ALL smbc_init() calls
     std::string smb_url = "smb://" + server + "/" + share + "/" + UrlEncode(path);
     printf("DEBUG smb_url (open/download with progress): %s\n", smb_url.c_str());
 
@@ -379,8 +397,7 @@ bool DownloadFile(const std::string &server, const std::string &share,
 {
     g_smb_username = username;
     g_smb_password = password;
-    smbc_init(auth_fn, 1);
-
+    InitSMBUniversal(username, password);  // Replaces ALL smbc_init() calls
     std::string smb_url = "smb://" + server + "/" + share + "/" + path;
 
     // Returns int fd (NOT SMBCFILE*)
@@ -415,8 +432,7 @@ bool UploadFileWithProgress(const std::string &server, const std::string &share,
     std::lock_guard<std::mutex> smb_lock(g_smb_mutex);
     g_smb_username = username;
     g_smb_password = password;
-    smbc_init(auth_fn, 1);
-
+    InitSMBUniversal(username, password);  // Replaces ALL smbc_init() calls
     std::string smb_url = "smb://" + server + "/" + share + "/" + UrlEncode(remotePath);
 
     std::ifstream in(localFile, std::ios::binary);
@@ -514,8 +530,7 @@ bool DeleteFile(const std::string &server, const std::string &share,
     std::lock_guard<std::mutex> smb_lock(g_smb_mutex);
     g_smb_username = username;
     g_smb_password = password;
-    smbc_init(auth_fn, 1);
-
+    InitSMBUniversal(username, password);  // Replaces ALL smbc_init() calls
     std::string smb_url = "smb://" + server + "/" + share + "/" + UrlEncode(remotePath);
     printf("DEBUG smb_url (delete): %s\n", smb_url.c_str());
     int res = -1;
@@ -545,8 +560,7 @@ bool DeleteRecursive(const std::string &server, const std::string &share,
     std::lock_guard<std::mutex> smb_lock(g_smb_mutex);
     g_smb_username = username;
     g_smb_password = password;
-    smbc_init(auth_fn, 1);
-
+    InitSMBUniversal(username, password);  // Replaces ALL smbc_init() calls
     std::string smb_url = "smb://" + server + "/" + share;
     if (!remotePath.empty())
         smb_url += "/" + UrlEncode(remotePath);
@@ -617,8 +631,7 @@ bool MoveRemote(const std::string &server, const std::string &share,
     std::lock_guard<std::mutex> smb_lock(g_smb_mutex);
     g_smb_username = username;
     g_smb_password = password;
-    smbc_init(auth_fn, 1);
-
+    InitSMBUniversal(username, password);  // Replaces ALL smbc_init() calls
     std::string old_url = "smb://" + server + "/" + share;
     if (!oldRemotePath.empty())
         old_url += "/" + UrlEncode(oldRemotePath);
@@ -690,7 +703,8 @@ bool UploadMemoryToSMB(const std::string &server, const std::string &share,
     std::lock_guard<std::mutex> smb_lock(g_smb_mutex);
     g_smb_username = username;
     g_smb_password = password;
-    smbc_init(auth_fn, 1);
+    InitSMBUniversal(username, password);  // Replaces ALL smbc_init() calls
+
 
     std::string smb_url = "smb://" + server + "/" + share + "/" + UrlEncode(remotePath);
     printf("[SMB] Opening: %s\n", smb_url.c_str());
